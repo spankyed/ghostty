@@ -179,6 +179,82 @@ typedef enum GHOSTTY_ENUM_TYPED {
    */
   GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_Z = 12,
 
+  /**
+   * Whether the placement ID was assigned by the terminal rather than
+   * by the program.
+   *
+   * A placement created without an ID (p=0) is given an internal one.
+   * Internal and program-assigned IDs are separate namespaces, so the
+   * same number can name one placement of each kind for one image. This
+   * is what tells them apart.
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_INTERNAL_ID = 13,
+
+  /**
+   * Whether this placement is positioned relative to another placement
+   * (created with P=/Q=).
+   *
+   * A relative placement has no position of its own in the storage: it
+   * is its parent's position plus HORIZONTAL_OFFSET and VERTICAL_OFFSET
+   * cells, and the parent may itself be relative. The render state's
+   * image list resolves this for the visible screen; these keys let an
+   * embedder resolve it anywhere.
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_IS_RELATIVE = 14,
+
+  /**
+   * The image ID of the placement this one is relative to.
+   *
+   * Returns GHOSTTY_NO_VALUE if the placement isn't relative.
+   *
+   * Output type: uint32_t *
+   */
+  GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_PARENT_IMAGE_ID = 15,
+
+  /**
+   * The placement ID of the placement this one is relative to.
+   *
+   * Together with PARENT_IMAGE_ID and PARENT_IS_INTERNAL_ID this
+   * identifies exactly one placement.
+   *
+   * Returns GHOSTTY_NO_VALUE if the placement isn't relative.
+   *
+   * Output type: uint32_t *
+   */
+  GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_PARENT_PLACEMENT_ID = 16,
+
+  /**
+   * Whether the parent's placement ID was assigned by the terminal
+   * (see IS_INTERNAL_ID).
+   *
+   * Returns GHOSTTY_NO_VALUE if the placement isn't relative.
+   *
+   * Output type: bool *
+   */
+  GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_PARENT_IS_INTERNAL_ID = 17,
+
+  /**
+   * Offset in cells from the parent's left edge (H=). May be negative.
+   *
+   * Returns GHOSTTY_NO_VALUE if the placement isn't relative.
+   *
+   * Output type: int32_t *
+   */
+  GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_HORIZONTAL_OFFSET = 18,
+
+  /**
+   * Offset in cells from the parent's top edge (V=). May be negative.
+   *
+   * Returns GHOSTTY_NO_VALUE if the placement isn't relative.
+   *
+   * Output type: int32_t *
+   */
+  GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_VERTICAL_OFFSET = 19,
+
   GHOSTTY_KITTY_GRAPHICS_PLACEMENT_DATA_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyKittyGraphicsPlacementData;
 

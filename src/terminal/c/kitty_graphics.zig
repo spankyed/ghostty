@@ -90,14 +90,30 @@ pub const PlacementData = enum(c_int) {
     columns = 10,
     rows = 11,
     z = 12,
+    is_internal_id = 13,
+    is_relative = 14,
+    parent_image_id = 15,
+    parent_placement_id = 16,
+    parent_is_internal_id = 17,
+    horizontal_offset = 18,
+    vertical_offset = 19,
 
     _,
 
     pub fn OutType(comptime self: PlacementData) type {
         return switch (self) {
             .invalid => void,
-            .image_id, .placement_id => u32,
-            .is_virtual => bool,
+            .image_id,
+            .placement_id,
+            .parent_image_id,
+            .parent_placement_id,
+            => u32,
+            .is_virtual,
+            .is_internal_id,
+            .is_relative,
+            .parent_is_internal_id,
+            => bool,
+            .horizontal_offset, .vertical_offset => i32,
             .x_offset,
             .y_offset,
             .source_x,
@@ -459,6 +475,28 @@ fn placementGetTyped(
         .columns => out.* = val.columns,
         .rows => out.* = val.rows,
         .z => out.* = val.z,
+        .is_internal_id => out.* = key.placement_id.tag == .internal,
+        .is_relative => out.* = val.location == .relative,
+        .parent_image_id,
+        .parent_placement_id,
+        .parent_is_internal_id,
+        .horizontal_offset,
+        .vertical_offset,
+        => {
+            // Only a relative placement has a parent to describe.
+            const rel = switch (val.location) {
+                .relative => |rel| rel,
+                .pin, .virtual => return .no_value,
+            };
+            out.* = switch (data) {
+                .parent_image_id => rel.parent.image_id,
+                .parent_placement_id => rel.parent.placement_id.id,
+                .parent_is_internal_id => rel.parent.placement_id.tag == .internal,
+                .horizontal_offset => rel.horizontal_offset,
+                .vertical_offset => rel.vertical_offset,
+                else => comptime unreachable,
+            };
+        },
         _ => comptime unreachable,
     }
 
@@ -919,6 +957,194 @@ test "placement_iterator with multiple placements" {
     try testing.expectEqual(2, count);
     try testing.expect(seen_p1);
     try testing.expect(seen_p2);
+}
+
+test "placement_iterator relative placement reports its parent" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    // Image 1 is displayed twice: once with a client placement ID and
+    // once without, which assigns an internal ID. Image 2 is placed
+    // relative to the first of those, and image 3 relative to image 2.
+    const sequences = [_][]const u8{
+        "\x1b_Ga=t,t=d,f=24,i=1,s=1,v=2;////////\x1b\\",
+        "\x1b_Ga=t,t=d,f=24,i=2,s=1,v=2;////////\x1b\\",
+        "\x1b_Ga=t,t=d,f=24,i=3,s=1,v=2;////////\x1b\\",
+        "\x1b_Ga=p,i=1,p=7,c=2,r=1;\x1b\\",
+        "\x1b_Ga=p,i=1,c=2,r=1;\x1b\\",
+        "\x1b_Ga=p,i=2,p=9,P=1,Q=7,H=3,V=-2;\x1b\\",
+        "\x1b_Ga=p,i=3,P=2,Q=9,H=-1,V=4;\x1b\\",
+    };
+    for (sequences) |seq| terminal_c.vt_write(t, seq.ptr, seq.len);
+
+    var graphics: KittyGraphics = undefined;
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics,
+        @ptrCast(&graphics),
+    ));
+
+    var iter: PlacementIterator = null;
+    try testing.expectEqual(Result.success, placement_iterator_new(
+        &lib.alloc.test_allocator,
+        &iter,
+    ));
+    defer placement_iterator_free(iter);
+    try testing.expectEqual(Result.success, get(graphics, .placement_iterator, @ptrCast(&iter)));
+
+    var seen_external: usize = 0;
+    var seen_internal: usize = 0;
+    var seen_child: usize = 0;
+    var seen_grandchild: usize = 0;
+    while (placement_iterator_next(iter)) {
+        var image_id: u32 = undefined;
+        try testing.expectEqual(Result.success, placement_get(iter, .image_id, @ptrCast(&image_id)));
+        var placement_id: u32 = undefined;
+        try testing.expectEqual(Result.success, placement_get(iter, .placement_id, @ptrCast(&placement_id)));
+        var is_internal: bool = undefined;
+        try testing.expectEqual(Result.success, placement_get(iter, .is_internal_id, @ptrCast(&is_internal)));
+        var is_relative: bool = undefined;
+        try testing.expectEqual(Result.success, placement_get(iter, .is_relative, @ptrCast(&is_relative)));
+
+        var parent_image_id: u32 = 0xAAAA;
+        var parent_placement_id: u32 = 0xAAAA;
+        var parent_is_internal: bool = true;
+        var horizontal: i32 = 0xAAAA;
+        var vertical: i32 = 0xAAAA;
+
+        switch (image_id) {
+            // The parents: neither is relative, so there is no parent
+            // to report and the outputs are left alone.
+            1 => {
+                try testing.expect(!is_relative);
+                if (is_internal) seen_internal += 1 else {
+                    seen_external += 1;
+                    try testing.expectEqual(7, placement_id);
+                }
+                try testing.expectEqual(Result.no_value, placement_get(iter, .parent_image_id, @ptrCast(&parent_image_id)));
+                try testing.expectEqual(Result.no_value, placement_get(iter, .parent_placement_id, @ptrCast(&parent_placement_id)));
+                try testing.expectEqual(Result.no_value, placement_get(iter, .parent_is_internal_id, @ptrCast(&parent_is_internal)));
+                try testing.expectEqual(Result.no_value, placement_get(iter, .horizontal_offset, @ptrCast(&horizontal)));
+                try testing.expectEqual(Result.no_value, placement_get(iter, .vertical_offset, @ptrCast(&vertical)));
+                try testing.expectEqual(0xAAAA, parent_image_id);
+                try testing.expectEqual(0xAAAA, horizontal);
+            },
+
+            // Relative to image 1's client-numbered placement.
+            2 => {
+                seen_child += 1;
+                try testing.expect(is_relative);
+                try testing.expect(!is_internal);
+                try testing.expectEqual(9, placement_id);
+                try testing.expectEqual(Result.success, placement_get(iter, .parent_image_id, @ptrCast(&parent_image_id)));
+                try testing.expectEqual(Result.success, placement_get(iter, .parent_placement_id, @ptrCast(&parent_placement_id)));
+                try testing.expectEqual(Result.success, placement_get(iter, .parent_is_internal_id, @ptrCast(&parent_is_internal)));
+                try testing.expectEqual(Result.success, placement_get(iter, .horizontal_offset, @ptrCast(&horizontal)));
+                try testing.expectEqual(Result.success, placement_get(iter, .vertical_offset, @ptrCast(&vertical)));
+                try testing.expectEqual(1, parent_image_id);
+                try testing.expectEqual(7, parent_placement_id);
+                try testing.expect(!parent_is_internal);
+                try testing.expectEqual(3, horizontal);
+                try testing.expectEqual(-2, vertical);
+            },
+
+            // Relative to image 2, and itself given an internal ID.
+            3 => {
+                seen_grandchild += 1;
+                try testing.expect(is_relative);
+                try testing.expect(is_internal);
+                try testing.expectEqual(Result.success, placement_get(iter, .parent_image_id, @ptrCast(&parent_image_id)));
+                try testing.expectEqual(Result.success, placement_get(iter, .parent_placement_id, @ptrCast(&parent_placement_id)));
+                try testing.expectEqual(Result.success, placement_get(iter, .parent_is_internal_id, @ptrCast(&parent_is_internal)));
+                try testing.expectEqual(Result.success, placement_get(iter, .horizontal_offset, @ptrCast(&horizontal)));
+                try testing.expectEqual(Result.success, placement_get(iter, .vertical_offset, @ptrCast(&vertical)));
+                try testing.expectEqual(2, parent_image_id);
+                try testing.expectEqual(9, parent_placement_id);
+                try testing.expect(!parent_is_internal);
+                try testing.expectEqual(-1, horizontal);
+                try testing.expectEqual(4, vertical);
+            },
+
+            else => return error.TestUnexpectedResult,
+        }
+    }
+
+    try testing.expectEqual(1, seen_external);
+    try testing.expectEqual(1, seen_internal);
+    try testing.expectEqual(1, seen_child);
+    try testing.expectEqual(1, seen_grandchild);
+}
+
+test "placement_iterator relative to an internal placement says so" {
+    if (comptime !build_options.kitty_graphics) return error.SkipZigTest;
+
+    var t: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(
+        &lib.alloc.test_allocator,
+        &t,
+        80,
+        24,
+    ));
+    defer terminal_c.free(t);
+
+    // The parent has no client placement ID, so Q is left out and the
+    // child resolves to the internally numbered placement.
+    const sequences = [_][]const u8{
+        "\x1b_Ga=t,t=d,f=24,i=1,s=1,v=2;////////\x1b\\",
+        "\x1b_Ga=t,t=d,f=24,i=2,s=1,v=2;////////\x1b\\",
+        "\x1b_Ga=p,i=1,c=2,r=1;\x1b\\",
+        "\x1b_Ga=p,i=2,p=5,P=1;\x1b\\",
+    };
+    for (sequences) |seq| terminal_c.vt_write(t, seq.ptr, seq.len);
+
+    var graphics: KittyGraphics = undefined;
+    try testing.expectEqual(Result.success, terminal_c.get(
+        t,
+        .kitty_graphics,
+        @ptrCast(&graphics),
+    ));
+
+    var iter: PlacementIterator = null;
+    try testing.expectEqual(Result.success, placement_iterator_new(
+        &lib.alloc.test_allocator,
+        &iter,
+    ));
+    defer placement_iterator_free(iter);
+    try testing.expectEqual(Result.success, get(graphics, .placement_iterator, @ptrCast(&iter)));
+
+    var parent_id: ?u32 = null;
+    var child_parent_id: ?u32 = null;
+    while (placement_iterator_next(iter)) {
+        var image_id: u32 = undefined;
+        try testing.expectEqual(Result.success, placement_get(iter, .image_id, @ptrCast(&image_id)));
+        if (image_id == 1) {
+            var placement_id: u32 = undefined;
+            try testing.expectEqual(Result.success, placement_get(iter, .placement_id, @ptrCast(&placement_id)));
+            parent_id = placement_id;
+            continue;
+        }
+
+        var parent_is_internal: bool = false;
+        try testing.expectEqual(Result.success, placement_get(iter, .parent_is_internal_id, @ptrCast(&parent_is_internal)));
+        try testing.expect(parent_is_internal);
+        var parent_placement_id: u32 = undefined;
+        try testing.expectEqual(Result.success, placement_get(iter, .parent_placement_id, @ptrCast(&parent_placement_id)));
+        child_parent_id = parent_placement_id;
+        var horizontal: i32 = 0xAAAA;
+        try testing.expectEqual(Result.success, placement_get(iter, .horizontal_offset, @ptrCast(&horizontal)));
+        try testing.expectEqual(0, horizontal);
+    }
+
+    try testing.expect(parent_id != null);
+    try testing.expectEqual(parent_id, child_parent_id);
 }
 
 test "placement_iterator_set layer filter" {
