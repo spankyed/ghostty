@@ -2730,6 +2730,13 @@
         "COLUMNS": 10,
         "ROWS": 11,
         "Z": 12,
+        "IS_INTERNAL_ID": 13,
+        "IS_RELATIVE": 14,
+        "PARENT_IMAGE_ID": 15,
+        "PARENT_PLACEMENT_ID": 16,
+        "PARENT_IS_INTERNAL_ID": 17,
+        "HORIZONTAL_OFFSET": 18,
+        "VERTICAL_OFFSET": 19,
         "MAX_VALUE": 2147483647
       },
       "keys": {
@@ -2778,6 +2785,34 @@
           "type": "u32"
         },
         "Z": {
+          "direction": "out",
+          "type": "i32"
+        },
+        "IS_INTERNAL_ID": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "IS_RELATIVE": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "PARENT_IMAGE_ID": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "PARENT_PLACEMENT_ID": {
+          "direction": "out",
+          "type": "u32"
+        },
+        "PARENT_IS_INTERNAL_ID": {
+          "direction": "out",
+          "type": "bool"
+        },
+        "HORIZONTAL_OFFSET": {
+          "direction": "out",
+          "type": "i32"
+        },
+        "VERTICAL_OFFSET": {
           "direction": "out",
           "type": "i32"
         }
